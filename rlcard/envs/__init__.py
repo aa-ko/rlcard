@@ -47,3 +47,8 @@ register(
     env_id='bridge',
     entry_point='rlcard.envs.bridge:BridgeEnv',
 )
+
+register(
+    env_id='sechs-nimmt',
+    entry_point='rlcard.envs.sechs_nimmt:SechsNimmtEnv',
+)
