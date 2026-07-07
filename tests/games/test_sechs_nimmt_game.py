@@ -3,7 +3,10 @@ import numpy as np
 
 from rlcard.games.sechs_nimmt.game import SechsNimmtGame as Game
 from rlcard.games.sechs_nimmt.card import SechsNimmtCard as Card
-from rlcard.games.sechs_nimmt.utils import ACTION_LIST, DECK_SIZE, NUM_ROWS, HAND_SIZE
+from rlcard.games.sechs_nimmt.round import SechsNimmtRound as Round
+from rlcard.games.sechs_nimmt.player import SechsNimmtPlayer as Player
+from rlcard.games.sechs_nimmt.utils import (
+    ACTION_LIST, TAKE_ROW_ACTIONS, DECK_SIZE, NUM_ACTIONS, NUM_ROWS, HAND_SIZE)
 
 
 class TestSechsNimmtMethods(unittest.TestCase):
@@ -14,7 +17,8 @@ class TestSechsNimmtMethods(unittest.TestCase):
 
     def test_get_num_actions(self):
         game = Game()
-        self.assertEqual(game.get_num_actions(), DECK_SIZE)
+        self.assertEqual(game.get_num_actions(), NUM_ACTIONS)
+        self.assertEqual(NUM_ACTIONS, DECK_SIZE + NUM_ROWS)
 
     def test_bulls(self):
         # Bull-head values for the special cards
@@ -52,7 +56,36 @@ class TestSechsNimmtMethods(unittest.TestCase):
         _, player_id = game.init_game()
         action = np.random.choice(game.get_legal_actions())
         _, next_player_id = game.step(action)
-        self.assertEqual(next_player_id, (player_id + 1) % game.get_num_players())
+        if game.round.pending_card is not None:
+            # A too-low card was played: the same player must now take a row.
+            self.assertEqual(next_player_id, player_id)
+            self.assertEqual(game.get_legal_actions(), list(TAKE_ROW_ACTIONS))
+        else:
+            self.assertEqual(next_player_id, (player_id + 1) % game.get_num_players())
+
+    def test_take_row_two_phase(self):
+        # Build a round whose rows all have high tops, then play a low card so
+        # the player is forced into the "take a row" decision.
+        round_obj = Round.__new__(Round)
+        round_obj.num_players = 2
+        round_obj.current_player = 0
+        round_obj.pending_card = None
+        round_obj.board = [[Card(90)], [Card(91)], [Card(92)], [Card(93)]]
+        players = [Player(0, None), Player(1, None)]
+        players[0].hand = [Card(5)]
+
+        # Phase 1: play the low card -> enters pending, turn does not advance
+        round_obj.proceed_round(players, '5')
+        self.assertIsNotNone(round_obj.pending_card)
+        self.assertEqual(round_obj.current_player, 0)
+        self.assertEqual(round_obj.get_legal_actions(players, 0), list(TAKE_ROW_ACTIONS))
+
+        # Phase 2: take row 2 (top card 92, worth 1 bull)
+        round_obj.proceed_round(players, 'take-2')
+        self.assertIsNone(round_obj.pending_card)
+        self.assertEqual(players[0].bulls, Card(92).bulls)
+        self.assertEqual([c.number for c in round_obj.board[2]], [5])
+        self.assertEqual(round_obj.current_player, 1)
 
     def test_play_full_game(self):
         game = Game()

@@ -23,7 +23,7 @@ class TestSechsNimmtEnv(unittest.TestCase):
         env.reset()
         legal_actions = env._get_legal_actions()
         for legal_action in legal_actions:
-            self.assertLessEqual(legal_action, DECK_SIZE - 1)
+            self.assertLessEqual(legal_action, env.num_actions - 1)
 
     def test_step(self):
         env = rlcard.make('sechs-nimmt')

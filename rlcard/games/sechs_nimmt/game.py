@@ -5,7 +5,7 @@ from rlcard.games.sechs_nimmt import Dealer
 from rlcard.games.sechs_nimmt import Player
 from rlcard.games.sechs_nimmt import Round
 from rlcard.games.sechs_nimmt import Judger
-from rlcard.games.sechs_nimmt.utils import DECK_SIZE, HAND_SIZE, NUM_ROWS
+from rlcard.games.sechs_nimmt.utils import DECK_SIZE, HAND_SIZE, NUM_ROWS, NUM_ACTIONS
 
 
 class SechsNimmtGame:
@@ -143,12 +143,13 @@ class SechsNimmtGame:
 
     @staticmethod
     def get_num_actions():
-        ''' Return the number of applicable actions (one per card number).
+        ''' Return the number of applicable actions: one per card number plus
+        one per row for the "take a row" decision.
 
         Returns:
-            (int): 104
+            (int): 108
         '''
-        return DECK_SIZE
+        return NUM_ACTIONS
 
     def get_player_id(self):
         ''' Return the current player's id.
@@ -159,11 +160,14 @@ class SechsNimmtGame:
         return self.round.current_player
 
     def is_over(self):
-        ''' Check if the game is over (all hands have been played).
+        ''' Check if the game is over (all hands have been played and no card
+        is still awaiting a "take a row" decision).
 
         Returns:
             (bool): True if every player has emptied their hand
         '''
+        if self.round.pending_card is not None:
+            return False
         return all(len(player.hand) == 0 for player in self.players)
 
     def get_winner(self):

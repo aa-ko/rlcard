@@ -1,4 +1,4 @@
-from rlcard.games.sechs_nimmt.utils import cards2list, MAX_ROW_SIZE
+from rlcard.games.sechs_nimmt.utils import cards2list, MAX_ROW_SIZE, TAKE_ROW_ACTIONS
 
 
 class SechsNimmtRound:
@@ -9,13 +9,15 @@ class SechsNimmtRound:
     ascending order). RLCard's engine is sequential, so this implementation
     uses the standard sequential approximation: on their turn each player
     plays one card, which is resolved onto the shared board immediately, then
-    play passes to the next seat. The core placement rules ("play onto the row
-    whose top card is the highest number still below your card", the
-    "6th card takes the row" penalty, and the "too-low card takes a row" rule)
-    are modelled faithfully. When a player must take a row, the row with the
-    fewest bull heads is taken automatically (a common heuristic) rather than
-    exposing the choice as a separate action, keeping the action space to one
-    action per card.
+    play passes to the next seat. The placement rules ("play onto the row
+    whose top card is the highest number still below your card" and the
+    "6th card takes the row" penalty) are modelled faithfully.
+
+    When a player plays a card lower than every row's top card they must gather
+    a row of their choice. This is modelled as a genuine decision: playing such
+    a card does not immediately advance the turn but puts the round into a
+    "pending" state where the same player chooses a row to take via one of the
+    ``take-r`` actions. Only then does play pass to the next seat.
     '''
 
     def __init__(self, dealer, num_players, np_random):
@@ -32,48 +34,44 @@ class SechsNimmtRound:
         self.current_player = 0
         # The board: four rows, each seeded with a single starter card.
         self.board = [[card] for card in dealer.deal_row_cards(4)]
+        # A card awaiting its owner's choice of which row to take (or None).
+        self.pending_card = None
 
     def proceed_round(self, players, action):
-        ''' Play one card for the current player and resolve it onto the board.
+        ''' Advance the game by one action.
 
         Args:
             players (list): The list of ``SechsNimmtPlayer`` objects
-            action (str): The face number (as a string) of the card to play
+            action (str): Either the face number (as a string) of a card to
+                play, or a ``take-r`` action choosing a row to gather
         '''
-        player = players[self.current_player]
+        # Second phase: the current player resolves a pending "take a row".
+        if action in TAKE_ROW_ACTIONS:
+            row_index = int(action.split('-')[1])
+            self._take_row(players[self.current_player], row_index, self.pending_card)
+            self.pending_card = None
+            self.current_player = (self.current_player + 1) % self.num_players
+            return
 
-        # Remove the chosen card from the player's hand
+        # First phase: the current player plays a card from their hand.
+        player = players[self.current_player]
         number = int(action)
         remove_index = next(index for index, card in enumerate(player.hand)
                             if card.number == number)
         card = player.hand.pop(remove_index)
 
-        self._place_card(player, card)
-
-        self.current_player = (self.current_player + 1) % self.num_players
-
-    def _place_card(self, player, card):
-        ''' Resolve a single played card onto the board, collecting bull heads
-        for the player when a row is taken.
-
-        Args:
-            player (object): The ``SechsNimmtPlayer`` playing the card
-            card (object): The ``SechsNimmtCard`` being played
-        '''
         # Rows whose top card is lower than the played card are candidates.
         eligible = [index for index, row in enumerate(self.board)
                     if row[-1].number < card.number]
 
         if not eligible:
-            # The card is lower than every row's top card: the player must take
-            # a row. Automatically take the row with the fewest bull heads.
-            row_index = min(range(len(self.board)),
-                            key=lambda i: self._row_bulls(self.board[i]))
-            self._take_row(player, row_index, card)
+            # The card is lower than every row's top card. The player must take
+            # a row of their choice: enter the pending state without advancing.
+            self.pending_card = card
             return
 
-        # Otherwise play onto the row with the highest top card still below the
-        # played card (i.e. the closest fit).
+        # Play onto the row with the highest top card still below the played
+        # card (i.e. the closest fit).
         row_index = max(eligible, key=lambda i: self.board[i][-1].number)
         row = self.board[row_index]
         if len(row) >= MAX_ROW_SIZE:
@@ -81,6 +79,8 @@ class SechsNimmtRound:
             self._take_row(player, row_index, card)
         else:
             row.append(card)
+
+        self.current_player = (self.current_player + 1) % self.num_players
 
     def _take_row(self, player, row_index, card):
         ''' The player collects every card currently in a row; the played card
@@ -107,15 +107,20 @@ class SechsNimmtRound:
         return sum(card.bulls for card in row)
 
     def get_legal_actions(self, players, player_id):
-        ''' Every card in a player's hand can always be played.
+        ''' The legal actions for a player.
+
+        While a card is pending a row choice, the only legal actions are the
+        four ``take-r`` actions. Otherwise every card in hand can be played.
 
         Args:
             players (list): The list of ``SechsNimmtPlayer`` objects
             player_id (int): The id of the player
 
         Returns:
-            (list): The face numbers (as strings) of the player's hand cards
+            (list): The legal action strings
         '''
+        if self.pending_card is not None:
+            return list(TAKE_ROW_ACTIONS)
         return cards2list(players[player_id].hand)
 
     def get_state(self, players, player_id):
@@ -133,5 +138,6 @@ class SechsNimmtRound:
         state['board'] = [cards2list(row) for row in self.board]
         state['bulls'] = [player.bulls for player in players]
         state['num_cards'] = [len(player.hand) for player in players]
+        state['pending_card'] = self.pending_card.get_str() if self.pending_card else None
         state['legal_actions'] = self.get_legal_actions(players, player_id)
         return state

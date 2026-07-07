@@ -8,11 +8,16 @@ NUM_ROWS = 4           # the board has four rows
 MAX_ROW_SIZE = 5       # taking the 6th card forces you to collect the row
 HAND_SIZE = 10         # each player is dealt 10 cards
 
-# The action space is simply "play card with face number n". Action id ``n-1``
-# corresponds to playing the card numbered ``n``. ``ACTION_LIST[i]`` is the
-# string representation of the card played by action ``i``.
-ACTION_LIST = [str(number) for number in range(1, DECK_SIZE + 1)]
+# The action space has two kinds of actions:
+#   * "play card with face number n" -> the string str(n) for n in 1..104
+#     (action ids 0..103).
+#   * "take row r" -> the string 'take-r' for r in 0..3 (action ids 104..107).
+# The take-row actions are only legal when the current player has just played a
+# card that is lower than every row's top card and must therefore gather a row.
+TAKE_ROW_ACTIONS = ['take-%d' % row for row in range(NUM_ROWS)]
+ACTION_LIST = [str(number) for number in range(1, DECK_SIZE + 1)] + TAKE_ROW_ACTIONS
 ACTION_SPACE = OrderedDict({action: index for index, action in enumerate(ACTION_LIST)})
+NUM_ACTIONS = len(ACTION_LIST)  # 104 play actions + 4 take-row actions = 108
 
 
 def init_deck():
